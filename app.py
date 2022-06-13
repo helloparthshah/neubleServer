@@ -1,70 +1,83 @@
-import asyncio
-from websockets import serve
-import websockets
-
 import os
+import logging
+import gevent
+from flask import Flask, render_template
+from flask_sockets import Sockets
 
-# get environment variable for port
-port = os.environ.get('PORT', '8000')
+# REDIS_URL = os.environ['REDIS_URL']
+# REDIS_CHAN = 'chat'
 
+app = Flask(__name__)
+app.debug = 'DEBUG' in os.environ
 
-class Room:
-    def __init__(self, p1):
-        self.p1 = p1
-        self.p2 = None
-
-
-rooms = []
-games = []
-
-
-async def handler(websocket):
-    try:
-        message = await websocket.recv()
-        print(message)
-        if(message == "Hello"):
-            if len(rooms) == 0:
-                room = Room(websocket)
-                rooms.append(room)
-                await echo(room, "p1")
-            else:
-                print("Room full")
-                room = rooms[0]
-                room.p2 = websocket
-                rooms.pop(0)
-                games.append(room)
-                await websocket.send("Connected")
-                await echo(room, "p2")
-    except websockets.ConnectionClosed as e:
-        # delete room if player disconnects
-        for room in rooms:
-            if room.p1 == websocket:
-                rooms.remove(room)
-                break
-        for game in games:
-            if game.p1 == websocket or game.p2 == websocket:
-                await game.p1.send("Disconnected")
-                games.remove(game)
-                break
-        print(e)
+sockets = Sockets(app)
+# redis = redis.from_url(REDIS_URL)
 
 
-async def echo(room, player):
-    while True:
-        if(not room.p2):
-            await room.p1.send("Waiting")
-        if(player == "p1"):
-            message = await room.p1.recv()
-            if(room.p2):
-                await room.p2.send(message)
-        else:
-            message = await room.p2.recv()
-            await room.p1.send(message)
+
+class ChatBackend(object):
+    """Interface for registering and updating WebSocket clients."""
+
+    def __init__(self):
+        self.clients = list()
+        # self.pubsub = redis.pubsub()
+        # self.pubsub.subscribe(REDIS_CHAN)
+
+    def __iter_data(self):
+        for message in self.pubsub.listen():
+            data = message.get('data')
+            if message['type'] == 'message':
+                app.logger.info(u'Sending message: {}'.format(data))
+                yield data
+
+    def register(self, client):
+        """Register a WebSocket connection for Redis updates."""
+        self.clients.append(client)
+
+    def send(self, client, data):
+        """Send given data to the registered client.
+        Automatically discards invalid connections."""
+        try:
+            client.send(data)
+        except Exception:
+            self.clients.remove(client)
+
+    def run(self):
+        """Listens for new messages in Redis, and sends them to clients."""
+        for data in self.__iter_data():
+            for client in self.clients:
+                gevent.spawn(self.send, client, data)
+
+    def start(self):
+        """Maintains Redis subscription in the background."""
+        gevent.spawn(self.run)
+
+chats = ChatBackend()
+chats.start()
 
 
-async def main():
-    async with serve(handler, '0.0.0.0', port):
-        # print server ip address and port
-        await asyncio.Future()  # run forever
+@app.route('/')
+def hello():
+    return render_template('index.html')
 
-asyncio.run(main())
+@sockets.route('/submit')
+def inbox(ws):
+    print('connected')
+    """Receives incoming chat messages, inserts them into Redis."""
+    while not ws.closed:
+        # Sleep to prevent *constant* context-switches.
+        gevent.sleep(0.1)
+        message = ws.receive()
+
+        if message:
+            app.logger.info(u'Inserting message: {}'.format(message))
+            # redis.publish(REDIS_CHAN, message)
+
+@sockets.route('/receive')
+def outbox(ws):
+    """Sends outgoing chat messages, via `ChatBackend`."""
+    chats.register(ws)
+
+    while not ws.closed:
+        # Context switch while `ChatBackend.start` is running in the background.
+        gevent.sleep(0.1)
