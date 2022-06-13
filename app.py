@@ -67,5 +67,4 @@ async def main():
         # print server ip address and port
         await asyncio.Future()  # run forever
 
-if __name__ == '__main__':
-    asyncio.run(main())
+asyncio.run(main())
