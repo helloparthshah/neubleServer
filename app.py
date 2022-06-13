@@ -58,9 +58,9 @@ async def echo(room, player):
 
 
 async def main():
-
     async with serve(handler, '0.0.0.0', 8000):
         # print server ip address and port
         await asyncio.Future()  # run forever
 
-asyncio.run(main())
+if __name__ == '__main__':
+    asyncio.run(main())
