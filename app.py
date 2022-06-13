@@ -2,6 +2,11 @@ import asyncio
 from websockets import serve
 import websockets
 
+import os
+
+# get environment variable for port
+port = os.environ.get('PORT', '8000')
+
 
 class Room:
     def __init__(self, p1):
@@ -58,7 +63,7 @@ async def echo(room, player):
 
 
 async def main():
-    async with serve(handler, '0.0.0.0', 8000):
+    async with serve(handler, '0.0.0.0', port):
         # print server ip address and port
         await asyncio.Future()  # run forever
 
