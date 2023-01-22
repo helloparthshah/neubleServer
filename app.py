@@ -69,6 +69,7 @@ async def echo(room, player):
 async def main():
     async with serve(handler, '0.0.0.0', port):
         # print server ip address and port
+        print("Server started at ws://{}:{}/".format('localhost', port))
         await asyncio.Future()  # run forever
 
 asyncio.run(main())
